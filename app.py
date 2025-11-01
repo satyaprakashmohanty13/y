@@ -1,19 +1,19 @@
 import streamlit as st
 import wave
 import os
-import io
-from pydub import AudioSegment
+import subprocess
 
 st.set_page_config(page_title="HiddenWave - Audio Steganography", layout="wide")
 
 # --- Utility: Convert MP3 to WAV ---
-def convert_to_wav(uploaded_file):
-    """Convert uploaded MP3 to WAV in-memory and return temp file path."""
-    file_bytes = uploaded_file.read()
-    audio = AudioSegment.from_file(io.BytesIO(file_bytes), format="mp3")
-    temp_path = "converted.wav"
-    audio.export(temp_path, format="wav")
-    return temp_path
+def convert_mp3_to_wav(mp3_file_path, wav_file_path="converted.wav"):
+    """
+    Convert MP3 to WAV using FFmpeg subprocess.
+    """
+    subprocess.run([
+        "ffmpeg", "-y", "-i", mp3_file_path, wav_file_path
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return wav_file_path
 
 
 # --- Embed Function ---
@@ -24,14 +24,19 @@ def embed_message(audio_file, message):
         if not message:
             return None, "❌ Error: Please enter a secret message."
 
-        # Handle MP3 or WAV (convert MP3 only)
-        if audio_file.name.lower().endswith(".mp3"):
-            input_path = convert_to_wav(audio_file)
-        else:
-            input_path = "temp_input.wav"
-            with open(input_path, "wb") as f:
-                f.write(audio_file.read())
+        # Save uploaded file temporarily
+        uploaded_filename = audio_file.name
+        temp_input_path = "temp_input"
+        with open(temp_input_path, "wb") as f:
+            f.write(audio_file.read())
 
+        # Convert MP3 to WAV if needed
+        if uploaded_filename.lower().endswith(".mp3"):
+            input_path = convert_mp3_to_wav(temp_input_path, "converted.wav")
+        else:
+            input_path = temp_input_path
+
+        # Open WAV and embed message
         waveaudio = wave.open(input_path, mode='rb')
         frame_bytes = bytearray(list(waveaudio.readframes(waveaudio.getnframes())))
         message = message + "###"
@@ -51,12 +56,13 @@ def embed_message(audio_file, message):
 
         with open(output_path, "rb") as f:
             audio_bytes = f.read()
+
         return audio_bytes, "✅ Message embedded successfully!"
     except Exception as e:
         return None, f"❌ Error: {str(e)}"
 
 
-# --- Extract Function (Only supports WAV) ---
+# --- Extract Function (WAV only) ---
 def extract_message(audio_file):
     try:
         if audio_file is None:
